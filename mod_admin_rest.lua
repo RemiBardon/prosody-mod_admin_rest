@@ -1,3 +1,13 @@
+-----------------------------------------------------------
+-- mod_admin_rest: RESTful admin interface to Prosody
+-- version 0.1
+-----------------------------------------------------------
+-- Copyright (C) 2012 Brandon "wltsmrz" Wilson <chlavois@gmail.com>
+--
+-- This project is MIT licensed. Please see the LICENSE
+-- file in the source package for more information.
+-----------------------------------------------------------
+
 local url    = require "socket.url";
 local jid    = require "util.jid";
 local stanza = require "util.stanza";
