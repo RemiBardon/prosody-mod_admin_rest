@@ -19,7 +19,7 @@ There are a few ways to administer Prosody; by using either the `mod_admin_telne
 
 ## Issuing commands
 
-This module depends on Prosody's `http` module, so it inherits the `http` module's configuration. You do not need to add `http` to the enabled modules list; it is loaded automatically. By default, http server listens on port `5280`. All requests must contain Basic authentication for a user who has administrative privileges. 
+This module depends on Prosody's `http` module, so it inherits the `http` module's configuration. You do not need to add `http` to the enabled modules list; it is loaded automatically. By default, http server listens on port `5280`. All requests must contain Basic authentication for a user who has administrative privileges.
 HTTP Basic access authentication is one of the easiest authentication methods and it's only safe with a secure SSL/HTTPS connection. The header generated is: ("Authorization" is the Headerfieldname and "Basic {TOKEN}" the Value.)
 
 > `Authorization: Basic {TOKEN}`
@@ -127,37 +127,36 @@ Get just the count of connected users.
 
 ### add user
 
-Add a user. If the user exists, response status code is `409`. If a user is successfully created, `201`.
+Adds a user. If the user exists, updates their password and responds with status code `200`. If the user is successfully created, `201`.
 
 > **POST** /admin_rest/user/`username`
 
-Include `password` in the request body
+Include `password` in the request body (`regip` is optional).
 
-```
-{ password: "mypassword",
+```json
+{
+  password: "mypassword",
   regip: "ipadress"
- }
+}
 ```
-
-regip is optional.
 
 **Status codes**
 
 + `201` User created
-+ `409` User already exists
++ `200` User already exists
 
 ---------------------------------------
 
 ### remove user
 
-Removes a user. If the user does not exist, response status code is `404`. If a user is successfully removed, `200`.
+Removes a user. If the user does not exist, responds with status code `200`. If the user is successfully removed, `200`.
 
 > **DELETE** /admin_rest/user/`username`
 
 **Status codes**
 
 + `200` User deleted
-+ `404` User does not exist
++ `200` User does not exist
 
 ---------------------------------------
 

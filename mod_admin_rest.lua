@@ -3,16 +3,20 @@
 -- version 0.1
 -----------------------------------------------------------
 -- Copyright (C) 2012 Brandon "wltsmrz" Wilson <chlavois@gmail.com>
+-- Copyright (C) 2024 Rémi Bardon <remi@remibardon.name>
 --
 -- This project is MIT licensed. Please see the LICENSE
 -- file in the source package for more information.
 -----------------------------------------------------------
 
-local url    = require "socket.url";
-local jid    = require "util.jid";
-local stanza = require "util.stanza";
-local b64    = require "util.encodings".base64;
-local sp     = require "util.encodings".stringprep;
+local url         = require "socket.url";
+local jid         = require "prosody.util.jid";
+local stanza      = require "prosody.util.stanza";
+local b64         = require "prosody.util.encodings".base64;
+local sp          = require "prosody.util.encodings".stringprep;
+local datamanager = require "prosody.util.datamanager";
+local xml         = require "prosody.util.xml";
+local log         = require "prosody.util.logger".init("admin_rest");
 
 local JSON = { };
 
@@ -22,11 +26,11 @@ local ok, error = pcall(function() JSON = require "cjson.safe" end);
 -- Fall back to util.json
 if not ok or error then JSON = require "util.json" end
 
-local um = require "core.usermanager";
-local rm = require "core.rostermanager";
-local mm = require "core.modulemanager";
-local hm = require "core.hostmanager";
-local sm = require "core.storagemanager";
+local um = require "prosody.core.usermanager";
+local rm = require "prosody.core.rostermanager";
+local mm = require "prosody.core.modulemanager";
+local hm = require "prosody.core.hostmanager";
+local sm = require "prosody.core.storagemanager";
 
 local hostname  = module:get_host();
 local secure    = module:get_option_boolean("admin_rest_secure", false);
@@ -105,19 +109,22 @@ function unsubscribe(user_jid, contact_jid)
   rm.unsubscribed(contact_username, contact_host, user_jid);
 end
 
-local function Response(status_code, message, array)
+local function Response(status_code, message, content_type)
   local response = { };
 
-  local ok, error = pcall(function()
-    message = JSON.encode({ result = message });
-  end);
+  response.status_code = status_code;
+  response.content_type = content_type or "application/json";
 
-  if not ok or error then
-    response.status_code = 500
-    response.body = "Failed to encode JSON response";
-  else
-    response.status_code = status_code;
+  if response.content_type:find("text/", 1, true) then
     response.body = message;
+  else
+    local ok, error = pcall(function()
+      response.body = JSON.encode({ result = message });
+    end);
+    if not ok or error then
+      response.status_code = 500
+      response.body = "Failed to encode JSON response";
+    end
   end
 
   return response;
@@ -150,7 +157,7 @@ local function respond(event, res, headers)
     end
   end
 
-  response.headers.content_type = "application/json";
+  response.headers.content_type = res.content_type;
   response.status_code = res.status_code;
   response:send(res.body);
 end
@@ -357,7 +364,7 @@ local function add_roster(event, path, body)
     source   = "mod_admin_rest";
   })
 
-  module:log("info", result);
+  log("info", result);
 end
 
 local function remove_roster(event, path, body)
@@ -399,103 +406,152 @@ local function remove_roster(event, path, body)
     source   = "mod_admin_rest";
   })
 
-  module:log("info", result);
+  log("info", result);
+end
+
+--- Reads a user JID from a path parameter. If it only contains a JID node (username),
+--- the default server host (`module:get_host()`) will be used.
+---
+--- Already logs errors.
+--- @param path {resource: string}
+--- @return boolean ok `true` if the function succeeded, `false` otherwise
+--- @return string|nil node The JID node
+--- @return string|nil host The JID host
+--- @return table|nil res A `Response` if the function failed
+local function get_user_from_path(path)
+  local function ok(node, host)
+    return true, node, host
+  end
+  local function err(res)
+    return false, nil, nil, res
+  end
+
+  local id = path.resource;
+  if not id then
+    log("warn", ("Username `%s` (from `path.resource`) is malformed."):format(path.resource));
+    return err(RESPONSES.invalid_path);
+  end
+
+  local split_user, split_host = jid.prepped_split(id);
+  if (not split_host) and (not split_user) then
+    log("warn", ("`%s` is not a valid JID."):format(id));
+    return err(RESPONSES.invalid_user);
+  end
+
+  if split_host and not split_user then
+    -- NOTE: If only a username is given, `jid.split` returns `(nil, host)`
+    --   (where `host` contains the username).
+    local username = split_host;
+    log("info", ("No host specified, using default host `%s`."):format(hostname));
+    return ok(username, hostname);
+  else
+    -- NOTE: `split_user` and `split_host` cannot be `nil`
+    --   because of previous conditions
+    return ok(split_user, split_host);
+  end
 end
 
 local function add_user(event, path, body)
-  local username = sp.nodeprep(path.resource);
-  local password = body["password"];
-  local regip = body["regip"];
-
-  if not username then
-    return respond(event, RESPONSES.invalid_path);
+  local ok, username, host, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
   end
+  local user_jid = jid.join(username, host);
 
+  local password = body["password"];
   if not password then
     return respond(event, RESPONSES.invalid_body);
   end
+  local regip = body["regip"];
 
-  local jid = jid.join(username, hostname);
-
-  if um.user_exists(username, hostname) then
-    return respond(event, Response(409, "User already exists: " .. jid));
+  if um.user_exists(username, host) then
+    -- User already exists, let's just update their password then
+    local ok, err = um.set_password(username, password, host);
+    if ok then
+      return respond(event, Response(200, ("User <%s> already existed, password updated"):format(user_jid)));
+    else
+      log("error", ("Could not update password for <%s>: %s"):format(user_jid, err));
+      return respond(event, RESPONSES.internal_error);
+    end
   end
 
-  if not um.create_user(username, password, hostname) then
+  if not um.create_user(username, password, host) then
     return respond(event, RESPONSES.internal_error);
   end
 
-  local result = "User registered: " .. jid;
-
+  local result = "User registered: " .. user_jid;
+  log("info", result);
   respond(event, Response(201, result));
 
   module:fire_event("user-registered", {
     username = username,
-    host = hostname,
+    host = host,
     ip = regip,
-    source   = "mod_admin_rest"
+    source = "mod_admin_rest"
   })
-
-  module:log("info", result);
 end
 
 local function remove_user(event, path, body)
-  local username = sp.nodeprep(path.resource);
+  local ok, username, host, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
+  end
+  local user_jid = jid.join(username, host);
 
-  if not username then
-    return respond(event, RESPONSES.invalid_user);
+  if not um.user_exists(username, host) then
+    return respond(event, Response(200, "User does not exist: " .. user_jid));
   end
 
-  local jid = jid.join(username, hostname);
-
-  if not um.user_exists(username, hostname) then
-    return respond(event, Response(404, "User does not exist: " .. jid));
-  end
-
-  if not um.delete_user(username, hostname) then
+  if not um.delete_user(username, host) then
     return respond(event, RESPONSES.internal_error);
   end
 
-  respond(event, Response(200, "User deleted: " .. jid));
+  log("info", "Deregistered user: " .. user_jid);
+  respond(event, Response(200, "User deleted: " .. user_jid));
 
   module:fire_event("user-deleted", {
     username = username;
-    hostname = hostname;
+    host = host;
     source = "mod_admin_rest";
   });
-
-  module:log("info", "Deregistered user: " .. jid);
 end
 
 local function patch_user(event, path, body)
-  local username = sp.nodeprep(path.resource);
-  local attribute = path.attribute;
+  local ok, username, host, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
+  end
+  local user_jid = jid.join(username, host);
 
-  if not (username and attribute)  then
+  local attribute = path.attribute;
+  if not attribute then
+    log("warn", "Missing attribute in path.");
     return respond(event, RESPONSES.invalid_path);
   end
 
-  local jid = jid.join(username, hostname);
-
-  if not um.user_exists(username, hostname) then
-    return respond(event, Response(404, "User does not exist: " .. jid));
+  if not um.user_exists(username, host) then
+    return respond(event, Response(404, "User does not exist: " .. user_jid));
   end
 
   if attribute == "password" then
     local password = body.password;
     if not password then
+      log("warn", "Missing `password` field in request body.");
       return respond(event, RESPONSES.invalid_body);
     end
-    if not um.set_password(username, password, hostname) then
+
+    if not um.set_password(username, password, host) then
+      log("error", ("Could not change password for <%s>."):format(user_jid));
       return respond(event, RESPONSES.internal_error);
     end
+  else
+    log("warn", ("Invalid attribute: `%s`"):format(attribute));
+    return respond(event, RESPONSES.invalid_path);
   end
 
-  local result = "User modified: " .. jid;
-
+  local result = "User modified: " .. user_jid;
+  log("info", result);
   respond(event, Response(200, result));
-
-  module:log("info", result);
 end
 
 local function offline_enabled()
@@ -556,7 +612,7 @@ local function send_multicast(event, path, body)
     respond(event, Response(404, result));
   end
 
-  module:log("info", result);
+  log("info", result);
 end
 
 local message_prefix = module:get_option_string("admin_rest_message_prefix", nil);
@@ -606,7 +662,7 @@ local function send_message(event, path, body)
 
   respond(event, Response(200, result));
 
-  module:log("info", result);
+  log("info", result);
 end
 
 local broadcast_prefix = module:get_option_string("admin_rest_broadcast_prefix", nil);
@@ -633,7 +689,7 @@ local function broadcast_message(event, path, body)
   respond(event, Response(200, { count = count }));
 
   if count > 0 then
-    module:log("info", "Message broadcasted to users: " .. count);
+    log("info", "Message broadcasted to users: " .. count);
   end
 end
 
@@ -690,7 +746,7 @@ function load_module(event, path, body)
 
   respond(event, Response(200, result));
 
-  module:log("info", result);
+  log("info", result);
 end
 
 function unload_module(event, path, body)
@@ -706,7 +762,7 @@ function unload_module(event, path, body)
 
   respond(event, Response(200, result));
 
-  module:log("info", result);
+  log("info", result);
 end
 
 local function get_whitelist(event, path, body)
@@ -731,7 +787,7 @@ local function add_whitelisted(event, path, body)
 
   respond(event, Response(200, result));
 
-  module:log("warn", result);
+  log("warn", result);
 end
 
 local function remove_whitelisted(event, path, body)
@@ -753,7 +809,91 @@ local function remove_whitelisted(event, path, body)
 
   respond(event, Response(200, result));
 
-  module:log("warn", result);
+  log("warn", result);
+end
+
+local function get_vcard(event, path, body)
+  -- Get JID from request path
+  local ok, username, host, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
+  end
+  local user_jid = jid.join(username, host);
+
+  -- Check existence
+  if not um.user_exists(username, host) then
+    log("warn", ("User <%s> does not exist."):format(user_jid));
+    return respond(event, Response(404, "User does not exist: " .. user_jid));
+  end
+
+  -- Read vCard
+  sm.initialize_host(host);
+  local vcard = datamanager.load(username, host, "vcard");
+
+  -- Respond to request
+  if vcard then
+    if vcard.value then
+      respond(event, Response(200, vcard.value, "text/vcard"));
+    else
+      log("error", ("<%s>'s vCard file is malformed."):format(user_jid));
+      return respond(event, RESPONSES.internal_error);
+    end
+  else
+    respond(event, Response(404, ("The user <%s> has no vCard configured."):format(user_jid)));
+  end
+end
+
+local function set_vcard(event, path, body)
+  -- Get JID from request path
+  local ok, username, host, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
+  end
+  local user_jid = jid.join(username, host);
+
+  -- Check existence
+  if not um.user_exists(username, host) then
+    log("warn", ("User <%s> does not exist."):format(user_jid));
+    return respond(event, Response(404, "User does not exist: " .. user_jid));
+  end
+
+  -- Write vCard
+  sm.initialize_host(host);
+  if body then
+    local vcard = { value = body };
+    if datamanager.store(username, host, "vcard", vcard) then
+      log("info", ("Saved vCard for <%s>."):format(user_jid));
+      return respond(event, Response(200, ("vCard stored for <%s>"):format(user_jid)));
+    else
+      log("error", ("Could not save vCard for <%s>."):format(user_jid));
+      return respond(event, RESPONSES.internal_error);
+    end
+  else
+    log("error", "Received a request with no body.");
+    return respond(event, RESPONSES.internal_error);
+  end
+end
+
+local function delete_vcard(event, path, body)
+  -- Get JID from request path
+  local ok, username, host, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
+  end
+  local user_jid = jid.join(username, host);
+
+  -- Check existence
+  if not um.user_exists(username, host) then
+    log("warn", ("User <%s> does not exist."):format(user_jid));
+    return respond(event, Response(404, "User does not exist: " .. user_jid));
+  end
+
+  -- Delete vCard
+  sm.initialize_host(host);
+  datamanager.store(username, host, "vcard", nil);
+
+  -- Respond to request
+  return respond(event, Response(200, ("vCard deleted for <%s>"):format(user_jid)));
 end
 
 local function ping(event, path, body)
@@ -809,11 +949,19 @@ local ROUTES = {
     GET    = get_whitelist;
     PUT    = add_whitelisted;
     DELETE = remove_whitelisted;
+  };
+
+  vcards = {
+    GET    = get_vcard;
+    PUT    = set_vcard;
+    DELETE = delete_vcard;
   }
 };
 
 --Reserved top-level request routes
 local RESERVED = to_set({ "admin" });
+
+module:default_permission("prosody:admin", "admin-rest:all");
 
 --Entry point for incoming requests.
 --Authenticate admin and route request.
@@ -822,6 +970,7 @@ local function handle_request(event)
 
   -- Check whitelist for IP
   if whitelist and not whitelist[request.conn._ip] then
+    log("warn", ("IP address `%s` is not whitelisted."):format(request.conn._ip));
     return respond(event, { status_code = 401, message = nil });
   end
 
@@ -832,6 +981,7 @@ local function handle_request(event)
 
   -- Request must have authorization header
   if not request.headers["authorization"] then
+    log("warn", "No `Authorization` header found.");
     return respond(event, RESPONSES.missing_auth);
   end
 
@@ -842,6 +992,7 @@ local function handle_request(event)
 
   -- Validate authentication details
   if not username or not password then
+    log("warn", "`Authorization` header malformed (could not parse JID and password).");
     return respond(event, RESPONSES.invalid_auth);
   end
 
@@ -849,11 +1000,13 @@ local function handle_request(event)
 
   -- Validate host
   if not hosts[user_host] then
+    log("warn", ("Host `%s` (from request auth) does not exist."):format(user_host));
     return respond(event, RESPONSES.invalid_host);
   end
 
   -- Authenticate user
   if not um.test_password(user_node, user_host, password) then
+    log("warn", ("Invalid password for <%s> (from request auth)."):format(username));
     return respond(event, RESPONSES.auth_failure);
   end
 
@@ -863,7 +1016,8 @@ local function handle_request(event)
   local route, hostname = path.route, hostname;
 
   -- Restrict to admin
-  if not um.is_admin(username, hostname) then
+  if not module:may("admin-rest:all", username) then
+    log("warn", ("User <%s> (from request auth) is not an admin."):format(username));
     return respond(event, RESPONSES.unauthorized);
   end
 
@@ -871,12 +1025,14 @@ local function handle_request(event)
 
   -- Confirm that route exists
   if not route or not handlers then
+    log("warn", ("Route `%s` does not exist."):format(route));
     return respond(event, RESPONSES.invalid_path);
   end
 
   -- Confirm that the host exists
   if not RESERVED[route] then
     if not hostname or not hosts[hostname] then
+      log("warn", ("Host `%s` (from `module:get_host()`) does not exist."):format(hostname));
       return respond(event, RESPONSES.invalid_host);
     end
   end
@@ -885,18 +1041,27 @@ local function handle_request(event)
 
   -- Confirm that handler exists for method
   if not handler then
+    log("warn", ("Route `%s` exists but HTTP method `%s` is not supported."):format(route, request.method));
     return respond(event, RESPONSES.invalid_method);
   end
 
   local body = { };
 
-  -- Parse JSON request body
   if request.body and #request.body > 0 then
-    if not pcall(function() body = JSON.decode(request.body) end) then
-      return respond(event, RESPONSES.decode_failure);
-    end
-    if not body["regip"] then
-      body["regip"] = request.conn._ip;
+    -- For compatibility with previous versions which didn't check
+    -- for the content type, we suppose JSON if body starts with a '{'.
+    if request.headers.content_type == "application/json" or request.body:find("{", 1, true) then
+      -- Parse JSON request body
+      if not pcall(function() body = JSON.decode(request.body) end) then
+        log("warn", "Could not decode JSON from request body.");
+        return respond(event, RESPONSES.decode_failure);
+      end
+      body = body or {};
+      if not body["regip"] then
+        body["regip"] = request.conn._ip;
+      end
+    else
+      body = request.body;
     end
   end
 
