@@ -468,7 +468,9 @@ local function add_user(event, path, body)
     -- User already exists, let's just update their password then
     local ok, err = um.set_password(username, password, host);
     if ok then
-      return respond(event, Response(200, ("User <%s> already existed, password updated"):format(user_jid)));
+      local result = ("User <%s> already existed, password updated"):format(user_jid);
+      log("info", result);
+      return respond(event, Response(200, result));
     else
       log("error", ("Could not update password for <%s>: %s"):format(user_jid, err));
       return respond(event, RESPONSES.internal_error);
