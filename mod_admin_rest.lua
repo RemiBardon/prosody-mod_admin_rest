@@ -17,6 +17,7 @@ local sp          = require "prosody.util.encodings".stringprep;
 local datamanager = require "prosody.util.datamanager";
 local xml         = require "prosody.util.xml";
 local log         = require "prosody.util.logger".init("admin_rest");
+local prosodyctl  = require "prosody.util.prosodyctl";
 
 local JSON = { };
 
@@ -220,6 +221,18 @@ local function normalize_user(user)
   end
 
   return cleaned;
+end
+
+local function reload(event, path, body)
+  local ok, ret = prosodyctl.reload();
+  if ok then
+    local message = "Prosody log files re-opened and config file reloaded. You may need to reload modules for some changes to take effect.";
+    log("info", message);
+    return respond(event, Response(200, message));
+  else
+    log("error", prosodyctl.error_messages[ret]);
+    return respond(event, RESPONSES.internal_error);
+  end
 end
 
 local function get_user_connected(event, path, body)
@@ -917,6 +930,10 @@ end
 local ROUTES = {
   ping = {
     GET = ping;
+  };
+
+  reload = {
+    PUT = reload;
   };
 
   user = {

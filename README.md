@@ -438,6 +438,16 @@ Remove a provided IP from whitelist.
 
 ---------------------------------------
 
+### Reload
+
+Reloads Prosody (same as `prosodyctl reload`).
+
+> **PUT** /admin_rest/reload
+
+**Status codes**
+
++ `200` Reloaded successfully
+
 ## Options
 
 Add any of the following options to your `prosody.cfg.lua`.  You may forward additional HTTP options to Prosody's `http` module.
