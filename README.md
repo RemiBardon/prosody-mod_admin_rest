@@ -162,7 +162,13 @@ Removes a user. If the user does not exist, responds with status code `200`. If 
 
 ### change user attributes
 
-The only implemented attribute for now is `password`. Ultimately roster modifications may be implemented. Supply values for attributes in the request body as encoded JSON:
+Supported attributes:
+
+- `password`
+- `role` (see [Roles and permissions – Prosody IM](https://prosody.im/doc/developers/permissions))
+  - FYI, built-in roles are defined in `mod_authz_internal.lua` (under section `-- Default roles`).
+
+Ultimately roster modifications may be implemented. Supply values for attributes in the request body as encoded JSON:
 
 > **PATCH** /admin_rest/user/`username`/`attribute`
 

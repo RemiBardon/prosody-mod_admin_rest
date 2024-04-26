@@ -546,6 +546,17 @@ local function patch_user(event, path, body)
       log("error", ("Could not change password for <%s>."):format(user_jid));
       return respond(event, RESPONSES.internal_error);
     end
+  elseif attribute == "role" then
+    local role_name = body.role;
+    if not role_name then
+      log("warn", "Missing `role` field in request body.");
+      return respond(event, RESPONSES.invalid_body);
+    end
+
+    if not um.set_user_role(username, host, role_name) then
+      log("error", ("Could not change user role for <%s>."):format(user_jid));
+      return respond(event, RESPONSES.internal_error);
+    end
   else
     log("warn", ("Invalid attribute: `%s`"):format(attribute));
     return respond(event, RESPONSES.invalid_path);
