@@ -74,9 +74,10 @@ end
 local function parse_path(path)
   local split = split_path(url.unescape(path));
   return {
-    route     = split[2];
-    resource  = split[3];
-    attribute = split[4];
+    route      = split[2];
+    resource   = split[3];
+    attribute  = split[4];
+    attribute2 = split[5];
   };
 end
 
@@ -987,6 +988,114 @@ local ROUTES = {
     DELETE = delete_vcard;
   }
 };
+
+-- `module.ready` runs when the module is loaded and the server has finished starting up.
+-- See `core/modulemanager.lua`.
+function module.ready()
+  -- Try to load `mod_groups_internal`
+  local groups = prosody.hosts[module.host].modules.groups_internal;
+  -- If the module is not enabled, don't expose related routes
+  if not groups then return end
+
+  local function create_group(event, path, body)
+    if not body then
+      return respond(event, RESPONSES.invalid_body);
+    end
+    if not body.name then
+      return respond(event, Response(400, "Body must contain a `name` key"));
+    end
+
+    local group_id, err = groups:create({ name = body.name }, body.create_default_muc, body.group_id);
+
+    if group_id then
+      return respond(event, Response(200, { group_id = group_id }));
+    elseif err == "conflict" then
+      return respond(event, Response(409, err));
+    else
+      return respond(event, Response(500, err));
+    end
+  end
+
+  local function delete_group(event, path, body)
+    local group_id = path.resource;
+
+    local ok, err = groups:delete(group_id);
+
+    if ok then
+      return respond(event, Response(200, ("Group '%s' deleted successfully."):format(group_id)));
+    else
+      return respond(event, Response(500, err));
+    end
+  end
+
+  local function add_group_member(event, path, body)
+    local group_id = path.resource;
+    local username = path.attribute2;
+
+    local ok, err = groups:add_member(group_id, username, body.delay_update);
+
+    if ok then
+      return respond(event, Response(200, ("Member '%s' successfully added to group '%s'."):format(username, group_id)));
+    else
+      return respond(event, Response(500, err));
+    end
+  end
+
+  local function remove_group_member(event, path, body)
+    local group_id = path.resource;
+    local username = path.attribute2;
+
+    local ok, err = groups:remove_member(group_id, username);
+
+    if ok then
+      return respond(event, Response(200, ("Member '%s' successfully removed from group '%s'."):format(username, group_id)));
+    else
+      return respond(event, Response(500, err));
+    end
+  end
+
+  ROUTES.groups = {
+    PUT = function(event, path, body)
+      if path.resource then
+        if path.attribute then
+          if path.attribute == "members" and path.attribute2 then
+            -- Case: `PUT /groups/<group_id>/members/<member_id>`
+            return add_group_member(event, path, body);
+          else
+            -- Case: `PUT /groups/<group_id>/<attribute>/**`
+            return respond(event, RESPONSES.invalid_path);
+          end
+        else
+          -- Case: `PUT /groups/<group_id>`
+          body.group_id = path.resource;
+          return create_group(event, path, body);
+        end
+      else
+        -- Case: `PUT /groups`
+        return create_group(event, path, body);
+      end
+    end;
+    DELETE = function(event, path, body)
+      if path.resource then
+        if path.attribute then
+          if path.attribute == "members" and path.attribute2 then
+            -- Case: `DELETE /groups/<group_id>/members/<member_id>`
+            return remove_group_member(event, path, body);
+          else
+            -- Case: `DELETE /groups/<group_id>/<attribute>/**`
+            return respond(event, RESPONSES.invalid_path);
+          end
+        else
+          -- Case: `DELETE /groups/<group_id>`
+          return delete_group(event, path, body);
+        end
+      else
+        -- Case: `DELETE /groups`
+        return respond(event, RESPONSES.invalid_path);
+      end
+    end;
+  };
+end
 
 --Reserved top-level request routes
 local RESERVED = to_set({ "admin" });

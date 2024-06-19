@@ -448,6 +448,108 @@ Reloads Prosody (same as `prosodyctl reload`).
 
 + `200` Reloaded successfully
 
+### `mod_groups_internal`
+
+#### Create group
+
+Calls `mod_groups_internal:create`.
+
+> `PUT /admin_rest/groups` OR `PUT /admin_rest/groups/<group_id>`
+
+**Example body:**
+
+```json
+{
+  "name": "String, required",
+  "create_default_muc": false,
+  "group_id": "String, optional"
+}
+```
+
+Only `name` is required, undefined `create_default_muc` and `group_id` are handled by `mod_groups_internal:create`.
+
+`<group_id>` in the path takes precedence over `group_id` in the body.
+
+**Example response:**
+
+```json
+{
+  "group_id": "kL5Qb4OHTPbS"
+}
+```
+
+**Status codes:**
+
++ `200` Group created successfully
++ `400` Invalid body
++ `409` Group already exists
++ `500` Internal server error
+
+#### Delete group
+
+Calls `mod_groups_internal:delete`.
+
+> `DELETE /admin_rest/groups/<group_id>`
+
+**No body.**
+
+**Example response:**
+
+```text
+Group 'kL5Qb4OHTPbS' deleted successfully.
+```
+
+**Status codes:**
+
++ `200` Group deleted successfully
++ `500` Internal server error
+
+#### Add group member
+
+Calls `mod_groups_internal:add_member`.
+
+> `PUT /admin_rest/groups/<group_id>/members/<member_id>`
+
+**Example body:**
+
+```json
+{
+  "delay_update": false
+}
+```
+
+`delay_update` is optional. Undefined `delay_update` is handled by `mod_groups_internal:create`.
+
+**Example response:**
+
+```text
+Member 'remi' successfully added to group 'kL5Qb4OHTPbS'.
+```
+
+**Status codes:**
+
++ `200` Member successfully added to group
++ `500` Internal server error
+
+#### Remove group member
+
+Calls `mod_groups_internal:remove_member`.
+
+> `DELETE /admin_rest/groups/<group_id>/members/<member_id>`
+
+**No body.**
+
+**Example response:**
+
+```text
+Group 'kL5Qb4OHTPbS' deleted successfully.
+```
+
+**Status codes:**
+
++ `200` Group deleted successfully
++ `500` Internal server error
+
 ## Options
 
 Add any of the following options to your `prosody.cfg.lua`.  You may forward additional HTTP options to Prosody's `http` module.
