@@ -1008,6 +1008,7 @@ function module.ready()
     local group_id, err = groups.create({ name = body.name }, body.create_default_muc, body.group_id);
 
     if group_id then
+      log("info", ("Group '%s' created successfully."):format(group_id));
       return respond(event, Response(200, { group_id = group_id }));
     elseif err == "conflict" then
       return respond(event, Response(409, err));
@@ -1022,7 +1023,9 @@ function module.ready()
     local ok, err = groups.delete(group_id);
 
     if ok then
-      return respond(event, Response(200, ("Group '%s' deleted successfully."):format(group_id)));
+      local res = ("Group '%s' deleted successfully."):format(group_id);
+      log("info", res);
+      return respond(event, Response(200, res));
     else
       return respond(event, Response(500, err));
     end
@@ -1035,7 +1038,9 @@ function module.ready()
     local ok, err = groups.add_member(group_id, username, body.delay_update);
 
     if ok then
-      return respond(event, Response(200, ("Member '%s' successfully added to group '%s'."):format(username, group_id)));
+      local res = ("Member '%s' successfully added to group '%s'."):format(username, group_id);
+      log("info", res);
+      return respond(event, Response(200, res));
     elseif err == "group-not-found" then
       return respond(event, Response(404, err));
     else
@@ -1050,7 +1055,9 @@ function module.ready()
     local ok, err = groups.remove_member(group_id, username);
 
     if ok then
-      return respond(event, Response(200, ("Member '%s' successfully removed from group '%s'."):format(username, group_id)));
+      local res = ("Member '%s' successfully removed from group '%s'."):format(username, group_id);
+      log("info", res);
+      return respond(event, Response(200, res));
     else
       return respond(event, Response(500, err));
     end
@@ -1097,6 +1104,8 @@ function module.ready()
       end
     end;
   };
+
+  log("info", ("Exposing `mod_groups_internal` routes on %s"):format(module.host));
 end
 
 --Reserved top-level request routes
