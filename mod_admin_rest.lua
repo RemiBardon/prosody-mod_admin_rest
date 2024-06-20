@@ -1005,7 +1005,7 @@ function module.ready()
       return respond(event, Response(400, "Body must contain a `name` key"));
     end
 
-    local group_id, err = groups:create({ name = body.name }, body.create_default_muc, body.group_id);
+    local group_id, err = groups.create({ name = body.name }, body.create_default_muc, body.group_id);
 
     if group_id then
       return respond(event, Response(200, { group_id = group_id }));
@@ -1019,7 +1019,7 @@ function module.ready()
   local function delete_group(event, path, body)
     local group_id = path.resource;
 
-    local ok, err = groups:delete(group_id);
+    local ok, err = groups.delete(group_id);
 
     if ok then
       return respond(event, Response(200, ("Group '%s' deleted successfully."):format(group_id)));
@@ -1032,7 +1032,7 @@ function module.ready()
     local group_id = path.resource;
     local username = path.attribute2;
 
-    local ok, err = groups:add_member(group_id, username, body.delay_update);
+    local ok, err = groups.add_member(group_id, username, body.delay_update);
 
     if ok then
       return respond(event, Response(200, ("Member '%s' successfully added to group '%s'."):format(username, group_id)));
@@ -1045,7 +1045,7 @@ function module.ready()
     local group_id = path.resource;
     local username = path.attribute2;
 
-    local ok, err = groups:remove_member(group_id, username);
+    local ok, err = groups.remove_member(group_id, username);
 
     if ok then
       return respond(event, Response(200, ("Member '%s' successfully removed from group '%s'."):format(username, group_id)));
