@@ -529,6 +529,7 @@ Member 'remi' successfully added to group 'kL5Qb4OHTPbS'.
 **Status codes:**
 
 + `200` Member successfully added to group
++ `404` Group not found
 + `500` Internal server error
 
 #### Remove group member

@@ -1036,6 +1036,8 @@ function module.ready()
 
     if ok then
       return respond(event, Response(200, ("Member '%s' successfully added to group '%s'."):format(username, group_id)));
+    elseif err == "group-not-found" then
+      return respond(event, Response(404, err));
     else
       return respond(event, Response(500, err));
     end
