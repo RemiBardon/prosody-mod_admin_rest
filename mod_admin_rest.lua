@@ -72,12 +72,12 @@ local function split_path(path)
 end
 
 local function parse_path(path)
-  local split = split_path(url.unescape(path));
+  local segments = split_path(url.unescape(path));
   return {
-    route      = split[2];
-    resource   = split[3];
-    attribute  = split[4];
-    attribute2 = split[5];
+    route      = segments[2];
+    resource   = segments[3];
+    attribute  = segments[4];
+    segments   = segments;
   };
 end
 
@@ -224,6 +224,49 @@ local function normalize_user(user)
   return cleaned;
 end
 
+--- Reads a user JID from a path parameter. If it only contains a JID node (username),
+--- the default server host (`module:get_host()`) will be used.
+---
+--- Already logs errors.
+--- @param path {segments: table}
+--- @return boolean ok `true` if the function succeeded, `false` otherwise
+--- @return string|nil node The JID node
+--- @return string|nil host The JID host
+--- @return table|nil res A `Response` if the function failed
+local function get_user_from_path(path, segment_index)
+  local function ok(node, host)
+    return true, node, host
+  end
+  local function err(res)
+    return false, nil, nil, res
+  end
+
+  segment_index = segment_index or 3;
+  local id = path.segments[segment_index];
+  if not id then
+    log("warn", ("No username found in path segment `%u`."):format(segment_index - 1));
+    return err(RESPONSES.invalid_path);
+  end
+
+  local split_user, split_host = jid.prepped_split(id);
+  if (not split_host) and (not split_user) then
+    log("warn", ("`%s` is not a valid JID."):format(id));
+    return err(RESPONSES.invalid_user);
+  end
+
+  if split_host and not split_user then
+    -- NOTE: If only a username is given, `jid.split` returns `(nil, host)`
+    --   (where `host` contains the username).
+    local username = split_host;
+    log("info", ("No host specified, using default host `%s`."):format(hostname));
+    return ok(username, hostname);
+  else
+    -- NOTE: `split_user` and `split_host` cannot be `nil`
+    --   because of previous conditions
+    return ok(split_user, split_host);
+  end
+end
+
 local function reload(event, path, body)
   local ok, ret = prosodyctl.reload();
   if ok then
@@ -237,10 +280,9 @@ local function reload(event, path, body)
 end
 
 local function get_user_connected(event, path, body)
-  local username = sp.nodeprep(path.resource);
-
-  if not username then
-    return respond(event, RESPONSES.invalid_user);
+  local ok, username, hostname, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
   end
 
   local jid = jid.join(username, hostname);
@@ -257,10 +299,9 @@ local function get_user_connected(event, path, body)
 end
 
 local function get_user(event, path, body)
-  local username = sp.nodeprep(path.resource);
-
-  if not username then
-    return respond(event, RESPONSES.invalid_user);
+  local ok, username, hostname, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
   end
 
   if not um.user_exists(username, hostname) then
@@ -311,10 +352,9 @@ local function get_users(event, path, body)
 end
 
 local function get_roster(event, path, body)
-  local username = sp.nodeprep(path.resource);
-
-  if not username then
-    return respond(event, RESPONSES.invalid_user);
+  local ok, username, hostname, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
   end
 
   if not um.user_exists(username, hostname) then
@@ -345,10 +385,9 @@ local function get_roster(event, path, body)
 end
 
 local function add_roster(event, path, body)
-  local username = sp.nodeprep(path.resource);
-
-  if not username then
-    return respond(event, RESPONSES.invalid_user);
+  local ok, username, hostname, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
   end
   local user_jid = jid.join(username, hostname);
 
@@ -382,10 +421,9 @@ local function add_roster(event, path, body)
 end
 
 local function remove_roster(event, path, body)
-  local username = sp.nodeprep(path.resource);
-
-  if not username then
-    return respond(event, RESPONSES.invalid_user);
+  local ok, username, hostname, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
   end
 
   local user_jid = jid.join(username, hostname)
@@ -421,48 +459,6 @@ local function remove_roster(event, path, body)
   })
 
   log("info", result);
-end
-
---- Reads a user JID from a path parameter. If it only contains a JID node (username),
---- the default server host (`module:get_host()`) will be used.
----
---- Already logs errors.
---- @param path {resource: string}
---- @return boolean ok `true` if the function succeeded, `false` otherwise
---- @return string|nil node The JID node
---- @return string|nil host The JID host
---- @return table|nil res A `Response` if the function failed
-local function get_user_from_path(path)
-  local function ok(node, host)
-    return true, node, host
-  end
-  local function err(res)
-    return false, nil, nil, res
-  end
-
-  local id = path.resource;
-  if not id then
-    log("warn", ("Username `%s` (from `path.resource`) is malformed."):format(path.resource));
-    return err(RESPONSES.invalid_path);
-  end
-
-  local split_user, split_host = jid.prepped_split(id);
-  if (not split_host) and (not split_user) then
-    log("warn", ("`%s` is not a valid JID."):format(id));
-    return err(RESPONSES.invalid_user);
-  end
-
-  if split_host and not split_user then
-    -- NOTE: If only a username is given, `jid.split` returns `(nil, host)`
-    --   (where `host` contains the username).
-    local username = split_host;
-    log("info", ("No host specified, using default host `%s`."):format(hostname));
-    return ok(username, hostname);
-  else
-    -- NOTE: `split_user` and `split_host` cannot be `nil`
-    --   because of previous conditions
-    return ok(split_user, split_host);
-  end
 end
 
 local function add_user(event, path, body)
@@ -645,7 +641,10 @@ end
 local message_prefix = module:get_option_string("admin_rest_message_prefix", nil);
 
 local function send_message(event, path, body)
-  local username = sp.nodeprep(path.resource);
+  local ok, username, hostname, res = get_user_from_path(path);
+  if not ok then
+    return respond(event, res);
+  end
 
   if not username then
     if body.recipients then
@@ -1033,7 +1032,7 @@ function module.ready()
 
   local function add_group_member(event, path, body)
     local group_id = path.resource;
-    local username = path.attribute2;
+    local username = path.segments[5];
 
     local ok, err = groups.add_member(group_id, username, body.delay_update);
 
@@ -1050,7 +1049,7 @@ function module.ready()
 
   local function remove_group_member(event, path, body)
     local group_id = path.resource;
-    local username = path.attribute2;
+    local username = path.segments[5];
 
     local ok, err = groups.remove_member(group_id, username);
 
@@ -1067,7 +1066,7 @@ function module.ready()
     PUT = function(event, path, body)
       if path.resource then
         if path.attribute then
-          if path.attribute == "members" and path.attribute2 then
+          if path.attribute == "members" and path.segments[5] then
             -- Case: `PUT /groups/<group_id>/members/<member_id>`
             return add_group_member(event, path, body);
           else
@@ -1087,7 +1086,7 @@ function module.ready()
     DELETE = function(event, path, body)
       if path.resource then
         if path.attribute then
-          if path.attribute == "members" and path.attribute2 then
+          if path.attribute == "members" and path.segments[5] then
             -- Case: `DELETE /groups/<group_id>/members/<member_id>`
             return remove_group_member(event, path, body);
           else
