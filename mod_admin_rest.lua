@@ -3,7 +3,7 @@
 -- version 0.1
 -----------------------------------------------------------
 -- Copyright (C) 2012 Brandon "wltsmrz" Wilson <chlavois@gmail.com>
--- Copyright (C) 2024 Rémi Bardon <remi@remibardon.name>
+-- Copyright (C) 2024–2025 Rémi Bardon <remi@remibardon.name>
 --
 -- This project is MIT licensed. Please see the LICENSE
 -- file in the source package for more information.
@@ -18,6 +18,7 @@ local datamanager = require "prosody.util.datamanager";
 local xml         = require "prosody.util.xml";
 local log         = require "prosody.util.logger".init("admin_rest");
 local prosodyctl  = require "prosody.util.prosodyctl";
+local lfs         = require "lfs";
 
 local JSON = { };
 
@@ -922,6 +923,43 @@ local function delete_vcard(event, path, body)
   return respond(event, Response(200, ("vCard deleted for <%s>"):format(user_jid)));
 end
 
+function empty_directory(path)
+  local ok, err;
+  -- Source: [lfs - file system operations](http://math2.org/luasearch/lfs.html#directory_iterator).
+  for file in lfs.dir(path) do
+    if file ~= "." and file ~= ".." then
+      local full_path = ("%s/%s"):format(path, file);
+      local attr = lfs.attributes(full_path);
+      assert(type(attr) == "table");
+      if attr.mode == "directory" then
+        empty_directory(full_path);
+        ok, err = lfs.rmdir(full_path);
+      else
+        ok, err = os.remove(full_path);
+      end
+      if not ok then
+        return nil, err;
+      end
+    end
+  end
+  return ok;
+end
+
+local function delete_data(event, path, body)
+  local datadir = prosody.paths.data;
+
+  log("warn", ("Deleting server data at %s"):format(datadir));
+  local ok, err = empty_directory(datadir);
+
+  if ok then
+    local res = ("Server data deleted successfully.");
+    log("warn", res);
+    return respond(event, Response(200, res));
+  else
+    return respond(event, Response(500, err));
+  end
+end
+
 local function ping(event, path, body)
   return respond(event, RESPONSES.pong);
 end
@@ -985,7 +1023,11 @@ local ROUTES = {
     GET    = get_vcard;
     PUT    = set_vcard;
     DELETE = delete_vcard;
-  }
+  };
+
+  data = {
+    DELETE = delete_data;
+  };
 };
 
 -- `module.ready` runs when the module is loaded and the server has finished starting up.

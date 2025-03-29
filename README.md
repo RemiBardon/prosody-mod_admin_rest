@@ -448,6 +448,25 @@ Reloads Prosody (same as `prosodyctl reload`).
 
 + `200` Reloaded successfully
 
+### Delete all server data
+
+Deletes all server data (empties `datadir`, e.g. `/var/lib/prosody/`).
+
+> `DELETE /admin_rest/data`
+
+**No body.**
+
+**Example response:**
+
+```text
+Server data deleted successfully.
+```
+
+**Status codes:**
+
++ `200` Server data deleted successfully
++ `500` Internal server error
+
 ### `mod_groups_internal`
 
 #### Create group
