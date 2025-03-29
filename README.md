@@ -467,6 +467,25 @@ Server data deleted successfully.
 + `200` Server data deleted successfully
 + `500` Internal server error
 
+### Delete all server data
+
+Deletes all certificates (empties the certificates directory, e.g. `/etc/prosody/certs/`).
+
+> `DELETE /admin_rest/certs`
+
+**No body.**
+
+**Example response:**
+
+```text
+Certificates deleted successfully.
+```
+
+**Status codes:**
+
++ `200` Certificates deleted successfully
++ `500` Internal server error
+
 ### `mod_groups_internal`
 
 #### Create group

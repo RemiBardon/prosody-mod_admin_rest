@@ -960,6 +960,21 @@ local function delete_data(event, path, body)
   end
 end
 
+local function delete_certs(event, path, body)
+  local certs_dir = ("%s/certs"):format(prosody.paths.config);
+
+  log("warn", ("Deleting certificates at %s"):format(certs_dir));
+  local ok, err = empty_directory(certs_dir);
+
+  if ok then
+    local res = ("Certificates deleted successfully.");
+    log("warn", res);
+    return respond(event, Response(200, res));
+  else
+    return respond(event, Response(500, err));
+  end
+end
+
 local function ping(event, path, body)
   return respond(event, RESPONSES.pong);
 end
@@ -1027,6 +1042,10 @@ local ROUTES = {
 
   data = {
     DELETE = delete_data;
+  };
+
+  certs = {
+    DELETE = delete_certs;
   };
 };
 
