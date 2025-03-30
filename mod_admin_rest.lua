@@ -268,14 +268,24 @@ local function get_user_from_path(path, segment_index)
   end
 end
 
-local function reload(event, path, body)
+local function prosodyctl_reload()
   local ok, ret = prosodyctl.reload();
+  local message;
   if ok then
-    local message = "Prosody log files re-opened and config file reloaded. You may need to reload modules for some changes to take effect.";
+    message = "Prosody log files re-opened and config file reloaded. You may need to reload modules for some changes to take effect.";
     log("info", message);
-    return respond(event, Response(200, message));
   else
-    log("error", prosodyctl.error_messages[ret]);
+    message = prosodyctl.error_messages[ret];
+    log("error", message);
+  end
+  return ok, message;
+end
+
+local function reload(event, path, body)
+  local ok, ret = prosodyctl_reload();
+  if ok then
+    return respond(event, Response(200, ret));
+  else
     return respond(event, RESPONSES.internal_error);
   end
 end
@@ -950,14 +960,20 @@ local function delete_data(event, path, body)
 
   log("warn", ("Deleting server data at %s"):format(datadir));
   local ok, err = empty_directory(datadir);
-
-  if ok then
-    local res = ("Server data deleted successfully.");
-    log("warn", res);
-    return respond(event, Response(200, res));
-  else
+  if not ok then
     return respond(event, Response(500, err));
   end
+
+  -- Reload Prosody as no admin user will be able to
+  -- log in to do it remotely anymore.
+  local ok, ret = prosodyctl_reload();
+  if not ok then
+    return respond(event, Response(500, ret));
+  end
+
+  local res = ("Server data deleted successfully.");
+  log("warn", res);
+  return respond(event, Response(200, res));
 end
 
 local function delete_certs(event, path, body)
@@ -965,14 +981,20 @@ local function delete_certs(event, path, body)
 
   log("warn", ("Deleting certificates at %s"):format(certs_dir));
   local ok, err = empty_directory(certs_dir);
-
-  if ok then
-    local res = ("Certificates deleted successfully.");
-    log("warn", res);
-    return respond(event, Response(200, res));
-  else
+  if not ok then
     return respond(event, Response(500, err));
   end
+
+  -- Reload Prosody as no admin user will be able to
+  -- log in to do it remotely anymore.
+  local ok, ret = prosodyctl_reload();
+  if not ok then
+    return respond(event, Response(500, ret));
+  end
+
+  local res = ("Certificates deleted successfully.");
+  log("warn", res);
+  return respond(event, Response(200, res));
 end
 
 local function ping(event, path, body)
@@ -1210,13 +1232,13 @@ local function handle_request(event)
 
   -- Validate host
   if not hosts[user_host] then
-    log("warn", ("Host `%s` (from request auth) does not exist."):format(user_host));
+    log("warn", ("Host `%s` (from request auth) does not exist. Request: `%s %s`."):format(user_host, request.method, request.path));
     return respond(event, RESPONSES.invalid_host);
   end
 
   -- Authenticate user
   if not um.test_password(user_node, user_host, password) then
-    log("warn", ("Invalid password for <%s> (from request auth)."):format(username));
+    log("warn", ("Invalid password for <%s> (from request auth). Request: `%s %s`."):format(username, request.method, request.path));
     return respond(event, RESPONSES.auth_failure);
   end
 
