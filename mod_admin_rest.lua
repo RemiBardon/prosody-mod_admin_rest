@@ -1145,6 +1145,20 @@ function module.ready()
     end
   end
 
+  local function sync_group(event, path, body)
+    local group_id = path.resource;
+
+    local ok, err = groups.sync(group_id);
+
+    if ok then
+      local res = ("Successfully did group subscriptions for group '%s'."):format(group_id);
+      log("info", res);
+      return respond(event, Response(200, res));
+    else
+      return respond(event, Response(500, err));
+    end
+  end
+
   ROUTES.groups = {
     PUT = function(event, path, body)
       if path.resource then
@@ -1164,6 +1178,25 @@ function module.ready()
       else
         -- Case: `PUT /groups`
         return create_group(event, path, body);
+      end
+    end;
+    POST = function(event, path, body)
+      if path.resource then
+        if path.attribute then
+          if path.attribute == "sync" and not path.segments[5] then
+            -- Case: `POST /groups/<group_id>/sync`
+            return sync_group(event, path, body);
+          else
+            -- Case: `POST /groups/<group_id>/<attribute>/**`
+            return respond(event, RESPONSES.invalid_path);
+          end
+        else
+          -- Case: `POST /groups/<group_id>`
+          return respond(event, RESPONSES.invalid_path);
+        end
+      else
+        -- Case: `POST /groups`
+        return respond(event, RESPONSES.invalid_path);
       end
     end;
     DELETE = function(event, path, body)
