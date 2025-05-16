@@ -1148,15 +1148,12 @@ function module.ready()
   local function sync_group(event, path, body)
     local group_id = path.resource;
 
-    local ok, err = groups.sync(group_id);
+    -- NOTE: `groups.sync` returns nothing, so we can’t check for errors.
+    groups.sync(group_id);
 
-    if ok then
-      local res = ("Successfully did group subscriptions for group '%s'."):format(group_id);
-      log("info", res);
-      return respond(event, Response(200, res));
-    else
-      return respond(event, Response(500, err));
-    end
+    local res = ("Successfully did group subscriptions for group '%s'."):format(group_id);
+    log("info", res);
+    return respond(event, Response(200, res));
   end
 
   ROUTES.groups = {
