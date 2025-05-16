@@ -952,7 +952,7 @@ function empty_directory(path)
       end
     end
   end
-  return ok;
+  return true;
 end
 
 local function delete_data(event, path, body)
