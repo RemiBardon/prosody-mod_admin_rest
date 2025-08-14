@@ -179,22 +179,6 @@ local function get_session(hostname, username)
   return sessions and sessions[username];
 end
 
-local function get_connected_users(hostname)
-  local sessions = get_sessions(hostname);
-  local users = { };
-
-  for username, user in pairs(sessions or {}) do
-    for resource, _ in pairs(user.sessions or {}) do
-      table.insert(users, {
-        username = username,
-        resource = resource
-      });
-    end
-  end
-
-  return users;
-end
-
 local function get_recipient(hostname, username)
   local session = get_session(hostname, username)
   local offline = not session and um.user_exists(username, hostname);
@@ -360,6 +344,19 @@ local function get_users(event, path, body)
     end
     respond(event, Response(200, { users = users, count = #users }));
   end
+end
+
+local function get_all_users(event, path, body)
+  local users = {};
+  for user in um.users(hostname) do
+    table.insert(users, {
+      jid = user.."@"..hostname,
+      role = um.get_user_role(user, hostname),
+      secondary_roles = um.get_user_secondary_roles(user, hostname),
+    });
+  end
+
+  respond(event, Response(200, { users = users, count = #users }));
 end
 
 local function get_roster(event, path, body)
@@ -1024,6 +1021,10 @@ local ROUTES = {
 
   users = {
     GET = get_users;
+  };
+
+  ["all-users"] = {
+    GET = get_all_users;
   };
 
   roster = {

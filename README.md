@@ -94,6 +94,37 @@ Response:
 
 ---------------------------------------
 
+### get all users
+
+Return all user accounts (not just connected ones).
+
+> **GET** /admin_rest/all-users
+
+```
+{
+  count: number,
+  users: [
+    {
+      jid: string,
+      role: {
+        id: string,
+        name: string,
+        priority: number,
+        inherits: [
+          { id: string, name: string, priority: number, inherits: [...] }
+        ]
+      },
+      secondary_roles: [
+        { id: string, name: string, priority: number, inherits: [...] }
+      ]
+    },
+    ...
+  ]
+}
+```
+
+---------------------------------------
+
 ### get connected users
 
 If command complete successfully, an array of user objects is returned, with status code `200`. If no users are connected, an empty object is returned.
